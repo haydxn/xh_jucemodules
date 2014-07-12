@@ -1,0 +1,21 @@
+{
+  "id":             "xh_Utilities",
+  "name":           "Misc utility classes and templates",
+  "version":        "1.0.0",
+  "description":    "Various utility classes that are useful in a variety of contexts.",
+  "website":        "",
+  "license":        "MIT",
+
+  "dependencies":   [ { "id": "juce_core",   			"version": "3.0.4" },
+                      { "id": "juce_gui_basics",   		"version": "3.0.4" }  ],
+
+  "include":        "xh_Utilities.h",
+
+  "compile":        [ { "file": "xh_Utilities.cpp", "target": "! xcode" },
+                      { "file": "xh_Utilities.mm",  "target": "xcode" } ],
+
+  "browse":         [ "misc/*",
+					  "tasks/*",
+					  "templates/*" ]
+					  
+}
