@@ -42,8 +42,19 @@ class MemberFunctionTask	:	public ProgressiveTask
 {
 public:
 
+    /** This is the prototype for a member function capable of being wrapped
+        in a MemberFunctionTask. It needs to return a Result, and it must take
+        a single ProgressiveTask& parameter. 
+     */
 	typedef juce::Result (TargetClass::*TaskFunction) (ProgressiveTask& functionTask);
 
+    /** Create a new task to wrap a member function.
+        
+        @param taskName             The name for this task.
+        @param instance             The instance of the target class to call the
+                                    function from.
+        @param function             A pointer to the function to be called.
+     */
 	MemberFunctionTask (const juce::String& taskName, TargetClass* instance, TaskFunction function)
 		:   ProgressiveTask (taskName)
 	{
@@ -58,6 +69,10 @@ public:
 
 	///////////////////////////////////////////////////////////////////////////
 
+    /** Variant of the MemberFunctionTask for calling a member function which 
+        takes a single extra parameter (on top of the ProgressiveTask parameter)
+        as specified by the template arguments.
+     */
 	template <typename ParamType1>
 	class With1Param	:   public ProgressiveTask
 	{
@@ -88,6 +103,10 @@ public:
 
 	///////////////////////////////////////////////////////////////////////////
 
+    /** Variant of the MemberFunctionTask which takes two extra parameters (on
+        top of the ProgressiveTask parameter) as specified by the template 
+        arguments.
+     */
 	template <typename ParamType1, typename ParamType2>
 	class With2Params	:   public ProgressiveTask
 	{
