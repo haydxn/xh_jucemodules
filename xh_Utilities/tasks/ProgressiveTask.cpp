@@ -1,65 +1,114 @@
-
 ///////////////////////////////////////////////////////////////////////////////
 
-class ProgressiveTask::ScopedSubTaskTracker	:	public ProgressiveTask::Listener
+void ProgressiveTask::Context::addListener (Listener* listener)
 {
-	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScopedSubTaskTracker);
-public:
+	listeners.add (listener);
+}
 
-	ScopedSubTaskTracker (ProgressiveTask& parentTask, ProgressiveTask& taskToRun, double proportion)
-		:	owner (parentTask),
-			subTask (taskToRun),
-			progressAtStart (parentTask.getProgress()),
-			progressAtEnd (parentTask.getProgress() + proportion)
-	{
-		jassert (owner.currentSubTask == nullptr); // You can't run more than one sub-task at a time!
-		owner.currentSubTask = this;
-
-		subTask.addListener (this);
-
-		if (progressAtEnd > 1.0)
-			progressAtEnd = 1.0;
-	}
-
-	~ScopedSubTaskTracker ()
-	{
-		subTask.removeListener (this);
-		owner.currentSubTask = nullptr;
-	}
-
-	double interpolateProgress (double amount) const
-	{
-		double progress = progressAtStart + (amount * (progressAtEnd - progressAtStart));
-		return jlimit (0.0, 1.0, progress);
-	}
-
-	void taskStatusMessageChanged (ProgressiveTask* task) override
-	{
-		owner.setStatusMessage (owner.formatStatusMessageFromSubTask(*task));
-	}
-
-	void taskProgressChanged (ProgressiveTask* task) override
-	{
-		owner.setProgress (interpolateProgress (task->getProgress ()));
-	}
-
-	void abort ()
-	{
-		subTask.abort ();
-	}
-	
-	ProgressiveTask& owner;
-	ProgressiveTask& subTask;
-	double progressAtStart;
-	double progressAtEnd;
-};
+void ProgressiveTask::Context::removeListener (Listener* listener)
+{
+	listeners.remove (listener);
+}
 
 ///////////////////////////////////////////////////////////////////////////////
+
+ProgressiveTask::ExecutionScope::SubTaskInfo::SubTaskInfo (ExecutionScope& scope,
+                                                         ProgressiveTask& taskToPerform,
+                                                         double proportion,
+                                                         int index_, int count_)
+:   parentScope (scope),
+    task (taskToPerform),
+    index (index_),
+    count (count_),
+    progressAtStart(scope.progress),
+    progressAtEnd (scope.progress + proportion)
+{
+    parentScope.subTask = this;
+}
+
+ProgressiveTask::ExecutionScope::SubTaskInfo::~SubTaskInfo ()
+{
+    parentScope.subTask = nullptr;
+}
+
+double ProgressiveTask::ExecutionScope::SubTaskInfo::interpolateProgress (double amount) const
+{
+    double progress = progressAtStart + (amount * (progressAtEnd - progressAtStart));
+    return jlimit (0.0, 1.0, progress);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+ProgressiveTask::ExecutionScope::ExecutionScope (Context& executionContext,
+                                             ProgressiveTask& ownerTask, ProgressiveTask* parentTask)
+:   context (executionContext),
+    task (ownerTask),
+    parent (parentTask),
+    subTask(nullptr),
+    progress (0.0)
+{
+    ScopedLock lock (context.getLock());
+    
+    jassert (task.scope == nullptr);
+    task.scope = this;
+}
+
+ProgressiveTask::ExecutionScope::~ExecutionScope ()
+{
+    ScopedLock lock (context.getLock());
+
+    jassert (subTask == nullptr);
+    task.scope = nullptr;
+}
+
+ProgressiveTask& ProgressiveTask::ExecutionScope::getTask ()
+{
+    return task;
+}
+
+ProgressiveTask::Context& ProgressiveTask::ExecutionScope::getContext ()
+{
+    return context;
+}
+
+void ProgressiveTask::ExecutionScope::setProgress (double newProgress)
+{
+    progress = jlimit (0.0, 1.0, newProgress);
+    
+    if (parent != nullptr)
+    {
+        double parentProgress = parent->scope->subTask->interpolateProgress (progress);
+        parent->scope->setProgress (parentProgress);
+    }
+    else
+    {
+        context.listeners.call (&ProgressiveTask::Context::Listener::taskProgressChanged, &task);
+    }
+    //task.notifyProgressChanged();
+}
+
+void ProgressiveTask::ExecutionScope::setStatusMessage (const String& message)
+{
+    statusMessage = message;
+    
+    if (parent != nullptr)
+    {
+        parent->scope->setStatusMessage (parent->formatStatusMessageFromSubTask (task));
+    }
+    else
+    {
+        context.listeners.call (&ProgressiveTask::Context::Listener::taskStatusMessageChanged, &task);
+    }
+    //    task.notifyStatusChanged();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+const juce::Result ProgressiveTask::taskAlreadyRunning (Result::fail("Task already running"));
 
 ProgressiveTask::ProgressiveTask (const String& taskName)
 	:	name (taskName),
-        progress (0.0),
-        currentSubTask (nullptr),
+        scope (nullptr),
 		abortSignal (false)
 {
 
@@ -67,7 +116,7 @@ ProgressiveTask::ProgressiveTask (const String& taskName)
 
 ProgressiveTask::~ProgressiveTask ()
 {
-
+    jassert (scope == nullptr);
 }
 
 String ProgressiveTask::getName () const
@@ -75,14 +124,17 @@ String ProgressiveTask::getName () const
 	return name;
 }
 
+bool ProgressiveTask::isRunning () const
+{
+    return scope != nullptr;
+}
+
 void ProgressiveTask::setProgress (double newProgress)
 {
-	newProgress = jlimit (0.0, 1.0, newProgress);
-	if (progress != newProgress)
-	{
-		progress = newProgress;
-		notifyProgressChanged ();
-	}
+    if (scope != nullptr)
+    {
+        scope->setProgress (newProgress);
+    }
 }
 
 void ProgressiveTask::advanceProgress (double amount)
@@ -92,32 +144,47 @@ void ProgressiveTask::advanceProgress (double amount)
 
 double ProgressiveTask::getProgress () const
 {
-	return progress;
+    if (scope != nullptr)
+        return scope->progress;
+    return 0.0;
 }
 
 double ProgressiveTask::getDistanceToTargetProgress (double target) const
 {
-	return jmax (0.0, target - progress);
+    if (scope != nullptr)
+    {
+        return jmax (0.0, target - scope->progress);
+    }
+    return 0.0;
 }
 
 void ProgressiveTask::setStatusMessage (const String& message)
 {
-	statusMessage = message;
-	notifyStatusChanged ();
+    if (scope != nullptr)
+    {
+        scope->setStatusMessage (message);
+    }
 }
 
 String ProgressiveTask::getStatusMessage () const
 {
-	return statusMessage;
+    if (scope != nullptr)
+    {
+        return scope->statusMessage;
+    }
+    return String::empty;
 }
 
 void ProgressiveTask::abort ()
 {
 	abortSignal = true;
-	if (currentSubTask != nullptr)
-	{
-		currentSubTask->abort ();
-	}
+	if (scope != nullptr)
+    {
+        if (scope->subTask != nullptr)
+        {
+            scope->subTask->task.abort ();
+        }
+    }
 }
 
 bool ProgressiveTask::shouldAbort () const
@@ -125,11 +192,37 @@ bool ProgressiveTask::shouldAbort () const
 	return abortSignal || threadShouldExit ();
 }
 
+Result ProgressiveTask::performTask (Context& context)
+{
+    if (scope == nullptr)
+    {
+        ExecutionScope localRunTime (context, *this, nullptr);
+        return run ();
+    }
+    return taskAlreadyRunning;
+}
+
 Result ProgressiveTask::performSubTask (ProgressiveTask& taskToPerform, double proportionOfProgress, int index, int count)
 {
-	ScopedSubTaskTracker subTask (*this, taskToPerform, proportionOfProgress);
-	subTaskStarting (&taskToPerform, index, count);
-	return taskToPerform.performTask ();
+    jassert (scope != nullptr);
+    
+    if (scope != nullptr && !taskToPerform.isRunning())
+    {
+        //todo: maybe just make SubTaskInfo have/be a scope, so that the lock
+        //      can be safely scoped in the constructor. Even simpler would be
+        //      to make the scope just hold potential for subtask stuff, so that
+        //      there is a single common scope type - though that would mean
+        //      a chunk of stuff is unused for basic tasks...
+        //      For now, i'll just enter and exit here...
+
+        scope->getContext().getLock().enter ();
+        ExecutionScope::SubTaskInfo info (*scope, taskToPerform, proportionOfProgress, index, count);
+        ExecutionScope subTaskScope (scope->getContext(), taskToPerform, this);
+        scope->getContext().getLock().exit ();
+
+        return taskToPerform.run ();
+    }
+    return taskAlreadyRunning;
 }
 
 Result ProgressiveTask::performSubTask (ProgressiveTask& taskToPerform, double proportionOfProgress)
@@ -137,7 +230,8 @@ Result ProgressiveTask::performSubTask (ProgressiveTask& taskToPerform, double p
 	return performSubTask (taskToPerform, proportionOfProgress, 0, 1);
 }
 
-Result ProgressiveTask::performSubTaskSequence (const TaskSequence& sequence, double proportionOfProgress, bool stopOnError, Listener* subTaskListener)
+Result ProgressiveTask::performSubTaskSequence (const TaskSequence& sequence,
+                                                double proportionOfProgress, bool stopOnError)
 {
 	StringArray errorMessages;
 
@@ -150,19 +244,9 @@ Result ProgressiveTask::performSubTaskSequence (const TaskSequence& sequence, do
 
 		ProgressiveTask* subTask = sequence.getTask (i);
 
-		notifyStatusChanged ();
-
-		if (subTaskListener != nullptr)
-		{
-			subTask->addListener(subTaskListener);
-		}
+		//notifyStatusChanged ();
 
 		Result subTaskResult = performSubTask (*subTask, sequence.getTaskProportion (i) * proportionOfProgress, i, sequence.size());
-
-		if (subTaskListener != nullptr)
-		{
-			subTask->removeListener(subTaskListener);
-		}
 
 		if (subTaskResult.failed())
 		{
@@ -196,26 +280,6 @@ String ProgressiveTask::formatStatusMessageFromSubTask (ProgressiveTask& subTask
 	return subTask.getStatusMessage ();
 }
 
-void ProgressiveTask::addListener (Listener* listener)
-{
-	listeners.add (listener);
-}
-
-void ProgressiveTask::removeListener (Listener* listener)
-{
-	listeners.remove (listener);
-}
-
-void ProgressiveTask::notifyProgressChanged ()
-{
-	listeners.call (&Listener::taskProgressChanged, this);
-}
-
-void ProgressiveTask::notifyStatusChanged ()
-{
-	listeners.call (&Listener::taskStatusMessageChanged, this);
-}
-
 Result ProgressiveTask::getAbortResult ()
 {
 	return Result::ok ();
@@ -223,19 +287,18 @@ Result ProgressiveTask::getAbortResult ()
 
 bool ProgressiveTask::threadShouldExit () const
 {
-	Thread* currentThread = Thread::getCurrentThread ();
-	if (currentThread != nullptr)
-	{
-		return currentThread->threadShouldExit ();
-	}
-
-	ThreadPoolJob* currentJob = ThreadPoolJob::getCurrentThreadPoolJob();
-	if (currentJob != nullptr)
-	{
-		return currentJob->shouldExit();
-	}
-	return false;
+    if (scope != nullptr)
+    {
+        return scope->getContext().currentTaskShouldExit();
+    }
+    return true;
 }
+
+const ProgressiveTask::ExecutionScope* ProgressiveTask::getScope () const
+{
+    return scope;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 

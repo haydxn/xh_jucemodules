@@ -3,30 +3,28 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-class ModalTaskPopup	:	public TaskHandler
+class ModalTaskPopup	:	public TaskHandler,
+	public juce::Timer
 {
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModalTaskPopup);
 public:
 
-	ModalTaskPopup (ProgressiveTask* task, bool owned);
+	ModalTaskPopup (ProgressiveTask* task);
 	~ModalTaskPopup ();
 
-	virtual void taskStarted () override;
+	virtual void taskStart () override;
 	virtual bool taskMonitor (bool stillRunning) override;
-	virtual void taskFinished (bool aborted) override;
+	virtual void taskFinish (bool aborted) override;
 
-	virtual void taskStatusMessageChanged (ProgressiveTask* task) override;
-	virtual void taskProgressChanged (ProgressiveTask* task) override;
-
-	static void launch (ProgressiveTask* task, bool owned, const juce::String& title,
+	static void launch (ProgressiveTask* task, const juce::String& title,
                         int priority = 5, Callback* callback = nullptr);
+
+	virtual void timerCallback () override;
 
 private:
 
 	juce::ScopedPointer< juce::AlertWindow > alertWindow;
-	juce::String message;
-	double progress;
-	juce::CriticalSection messageLock;
+ 	double progress;
 
 };
 

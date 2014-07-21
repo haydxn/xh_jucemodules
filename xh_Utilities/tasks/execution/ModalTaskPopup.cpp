@@ -1,8 +1,8 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-ModalTaskPopup::ModalTaskPopup (ProgressiveTask* task, bool owned)
-	:	TaskHandler (task, owned),
+ModalTaskPopup::ModalTaskPopup (ProgressiveTask* task)
+	:	TaskHandler (task),
 		progress (0.0)
 {
 
@@ -10,15 +10,17 @@ ModalTaskPopup::ModalTaskPopup (ProgressiveTask* task, bool owned)
 
 ModalTaskPopup::~ModalTaskPopup ()
 {
-
+	flushState();
 }
 
-void ModalTaskPopup::taskStarted ()
+void ModalTaskPopup::taskStart ()
 {
 	String cancelButtonText = "Cancel";
 	bool hasCancelButton = true;
 	Component* componentToCentreAround = nullptr;
 	bool hasProgressBar = true;
+
+	progress = 0.0;
 
 	alertWindow = LookAndFeel::getDefaultLookAndFeel()
 			.createAlertWindow (getTask().getName(), String(),
@@ -30,42 +32,35 @@ void ModalTaskPopup::taskStarted ()
 	alertWindow->setEscapeKeyCancels (false);
 
 	if (hasProgressBar)
-		alertWindow->addProgressBarComponent (progress);
+		alertWindow->addProgressBarComponent (getOverallProgressVariable());
 
 	alertWindow->enterModalState();
+
+	startTimer (10);
 }
 
 bool ModalTaskPopup::taskMonitor (bool stillRunning)
 {
 	if (stillRunning && alertWindow->isCurrentlyModal())
 	{
-		const ScopedLock sl (messageLock);
-		alertWindow->setMessage (message);
+		alertWindow->setMessage (getStatusMessage());
 		return true;
 	}
 	return false;
 }
 
-void ModalTaskPopup::taskFinished (bool aborted)
+void ModalTaskPopup::taskFinish (bool aborted)
 {
 	alertWindow->exitModalState (aborted ? 1 : 0);
 	alertWindow->setVisible (false);
+	alertWindow = nullptr;
+
+	stopTimer();
 }
 
-void ModalTaskPopup::taskStatusMessageChanged (ProgressiveTask* task)
+void ModalTaskPopup::launch (ProgressiveTask* task, const String& title, int priority, Callback* callback)
 {
-	const ScopedLock sl (messageLock);
-	message = task->getStatusMessage();
-}
-
-void ModalTaskPopup::taskProgressChanged (ProgressiveTask* task)
-{
-	progress = task->getProgress();
-}
-
-void ModalTaskPopup::launch (ProgressiveTask* task, bool owned, const String& title, int priority, Callback* callback)
-{
-	ModalTaskPopup* handler = new ModalTaskPopup (task, owned);
+	ModalTaskPopup* handler = new ModalTaskPopup (task);
 
 	if (callback != nullptr)
 	{
@@ -74,6 +69,15 @@ void ModalTaskPopup::launch (ProgressiveTask* task, bool owned, const String& ti
 
 	TaskThread::launch (handler, title, priority);
 }
+
+void ModalTaskPopup::timerCallback ()
+{
+	if (!taskMonitor (getState() == TaskHandler::taskRunning))
+	{
+		getTask().abort();
+	}
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 

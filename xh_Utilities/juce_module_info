@@ -16,6 +16,7 @@
 
   "browse":         [ "misc/*",
 					  "tasks/*",
+					  "tasks/execution/*",
 					  "templates/*" ]
 					  
 }
