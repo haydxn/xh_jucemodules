@@ -13,7 +13,9 @@
 #include "misc/Version.h"
 
 #include "templates/AsyncCallback.h"
+#include "templates/Singleton.h"
 #include "templates/SubClassWeakReference.h"
+#include "templates/MessageThreadScopedPtr.h"
 #include "templates/OverridableSharedResourcePointer.h"
 
 #include "tasks/TaskSequence.h"
@@ -22,10 +24,14 @@
 #include "tasks/SerialTask.h"
 #include "tasks/MemberFunctionTask.h"
 #include "tasks/TaskHandler.h"
-#include "tasks/TaskThread.h"
 
-#include "tasks/ModalTaskPopup.h"
-#include "tasks/TaskThreadWithProgressWindow.h"
+#include "tasks/execution/TaskThreadPoolJob.h"
+#include "tasks/execution/TaskQueue.h"
+#include "tasks/execution/TaskThread.h"
+#include "tasks/execution/PooledTaskRunner.h"
+#include "tasks/execution/PooledTaskListView.h"
+#include "tasks/execution/ModalTaskPopup.h"
+#include "tasks/execution/TaskThreadWithProgressWindow.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 

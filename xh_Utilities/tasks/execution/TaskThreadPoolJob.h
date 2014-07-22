@@ -1,0 +1,6 @@
+#ifndef TASKTHREADPOOLJOB_H_INCLUDED
+#define TASKTHREADPOOLJOB_H_INCLUDED
+
+///////////////////////////////////////////////////////////////////////////////
+
+#endif//TASKTHREADPOOLJOB_H_INCLUDED

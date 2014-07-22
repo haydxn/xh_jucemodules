@@ -156,8 +156,7 @@ private:
 
     static SharedObjectHolder& getSharedObjectHolder() noexcept
     {
-        static void* holder [(sizeof (SharedObjectHolder) + sizeof(void*) - 1) / sizeof(void*)] = { 0 };
-        return *reinterpret_cast<SharedObjectHolder*> (holder);
+		RETURN_FUNCTION_STATIC_STRUCT(SharedObjectHolder);
     }
 
 	juce::OptionalScopedPointer< SharedObjectType > localOverride;

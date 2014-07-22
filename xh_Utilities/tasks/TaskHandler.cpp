@@ -1,108 +1,180 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-class TaskHandler::Monitor	:	public Timer
+class TaskHandler::Monitor	:	public AsyncUpdater,
+                                public ProgressiveTask::Context::Listener
 {
 public:
 
-	enum State
-	{
-		initial,
-		starting,
-		running,
-		stopping,
-	};
-
 	Monitor (TaskHandler& owner_)
-		:	owner (owner_),
-		state (initial),
-		aborted (false)
+	:	owner (owner_),
+		state (taskPending)
+	{
+		jassert (owner.getState() == TaskHandler::taskPending);
+	}
+
+	~Monitor()
 	{
 	}
 
 	void begin ()
 	{
-		startTimer(100);
-
-		if (MessageManager::getInstance()->isThisTheMessageThread())
-		{
-			owner.taskStarted();
-			state = running;
-		}
-		else
-		{
-			state = starting;
-			blocker.wait (); // wait until taskStarted has been called
-		}
+		setState (taskStarting);
 	}
 
 	void finish ()
 	{
-		state = stopping;
-
-		if (!MessageManager::getInstance()->isThisTheMessageThread())
+		if (state == taskRunning)
 		{
-			blocker.wait ();
+			setState (taskStopping);
 		}
 	}
 
-	void timerCallback () override
+	void forceFinish ()
 	{
+		if (state == taskRunning)
+		{
+			owner.getTask().abort();
+		}
+
+		bool aborted = owner.getTask().shouldAbort();
+
+		setState (aborted ? taskAborted : taskCompleted);
+	}
+
+	void setState (TaskState newState)
+	{
+		if (state != newState)
+		{
+			state = newState;
+
+			triggerAsyncUpdate();
+
+			if (!MessageManager::getInstance()->isThisTheMessageThread())
+			{
+				// Called from the task thread, so we'll wait for the main
+				// thread to pick it up and let us continue...
+				while (!blocker.wait(20))
+				{
+					// ... still need to make sure that the task thread can
+					// be terminated if necessary!
+					if (owner.getTask().threadShouldExit())
+						break;
+				}
+			}
+			else
+			{
+				// Called from the message thread, so we can assume that it
+				// is safe to allow the task thread to continue.
+				owner.setState (newState);
+				blocker.signal();
+			}
+		}
+	}
+
+	void handleAsyncUpdate () override
+	{
+		// Flush pending state change since we know we're on the message thread
+		if (state != owner.getState())
+		{
+			owner.setState (state);
+		}
+
 		switch (state)
 		{
-		case starting:
+		case taskStarting:
 
-			owner.taskStarted();
-			blocker.signal ();
-			state = running;
+			setState (taskRunning);
 			break;
 
-		case running:
-		case stopping:
+		case taskRunning:
+		case taskStopping:
 
-			if (!owner.taskMonitor (state == running))
+			if (!owner.taskMonitor (state == taskRunning))
 			{
-				if (state == running)
-				{
-					owner.getTask().abort();
-					aborted = true;
-				}
-
-				stopTimer ();
-
-				owner.finished = true;
-				owner.taskFinished (aborted);
-				owner.callCallbacks (aborted);
-				blocker.signal ();
+				forceFinish ();
 			}
+			break;
+
+		case taskAborted:
+		case taskCompleted:
+
+			//owner.monitor = nullptr;
+			break;
 
 		default:;
 		};
 	}
 
+	void taskStatusMessageChanged (ProgressiveTask* task) override
+	{
+		ScopedLock lock(owner.messageLock);
+		owner.statusMessage = task->getStatusMessage();
+	}
+
+	void taskProgressChanged (ProgressiveTask* task) override
+	{
+		owner.overallProgress = task->getProgress();
+	}
+
 private:
 
 	TaskHandler& owner;
+	TaskState state;
 	WaitableEvent blocker;
-	State state;
-	bool aborted;
-
 };
 
 
 ///////////////////////////////////////////////////////////////////////////////
 
-TaskHandler::TaskHandler (ProgressiveTask* taskToRun, bool owned)
-	:	task (taskToRun, owned),
-		result (Result::ok()),
-		finished (false)
+TaskHandler::TaskHandler (ProgressiveTask* taskToRun)
+	:	task (taskToRun),
+        state (taskPending),
+        result (Result::ok()),
+		overallProgress (0.0)
 {
-	task->addListener(this);
 }
 
 TaskHandler::~TaskHandler ()
 {
-	task->removeListener (this);
+	masterReference.clear ();
+	jassert (MessageManager::getInstance()->isThisTheMessageThread());
+	// It's not safe to destroy one of these from another thread, since their
+	// callbacks are meant to happen on the message thread. It's actually
+	// only really a problem if the task hasn't finished yet, but you might
+	// not actually encounter that during testing despite it being something
+	// that could happen in your code. For now, I'm leaving this assert in.
+}
+
+TaskHandler::TaskState TaskHandler::getState () const
+{
+	return state;
+}
+
+juce::String TaskHandler::getStateDescription () const
+{
+	switch (state)
+	{
+	case taskPending:	return "Waiting...";
+	case taskStarting:	return "Starting...";
+	case taskRunning:	return "Running...";
+	case taskStopping:	return "Stopping...";
+	case taskAborted:	return "Aborted.";
+
+	case taskCompleted:	
+
+		if (getResult().wasOk())
+		{
+			return "Completed successfully.";
+		}
+		else
+		{
+			return "Failed: " + getResult().getErrorMessage();
+		}
+
+	default:;
+	};
+	return String::empty;
 }
 
 void TaskHandler::setId (Identifier taskId)
@@ -117,7 +189,23 @@ Identifier TaskHandler::getId () const
 
 bool TaskHandler::hasFinished () const
 {
-	return finished;
+	return (state == taskCompleted || state == taskAborted);
+}
+
+String TaskHandler::getStatusMessage () const
+{
+	ScopedLock lock (messageLock);
+	return statusMessage;
+}
+
+double TaskHandler::getOverallProgress () const
+{
+	return overallProgress;
+}
+
+double& TaskHandler::getOverallProgressVariable ()
+{
+	return overallProgress;
 }
 
 ProgressiveTask& TaskHandler::getTask ()
@@ -130,15 +218,72 @@ juce::Result TaskHandler::getResult () const
 	return result;
 }
 
-void TaskHandler::performTask ()
+void TaskHandler::performTask (ProgressiveTask::Context& context)
 {
-	Monitor monitor (*this);
+	if (state == taskPending)
+	{
+		monitor = new Monitor (*this);
+        context.addListener (monitor);
 
-	monitor.begin ();
+		monitor->begin ();
 
-	result = task->performTask ();
+		result = task->performTask (context);
 
-	monitor.finish ();
+        context.removeListener (monitor);
+		if (monitor != nullptr)
+			monitor->finish ();
+	}
+}
+
+void TaskHandler::flushState ()
+{
+	if (MessageManager::getInstance()->isThisTheMessageThread())
+	{
+		if (monitor != nullptr)
+		{
+			monitor->forceFinish ();
+		}
+	}
+}
+
+void TaskHandler::setState (TaskState newState)
+{
+	if (state != newState)
+	{
+		state = newState;
+
+		switch (newState)
+		{
+		case taskStarting:
+
+			taskStart ();
+			break;
+
+		case taskCompleted:
+		case taskAborted:
+
+			taskFinish (newState == taskAborted);
+			callCallbacks (newState == taskAborted);
+			break;
+
+		default:;
+		}
+
+		listeners.call (&Listener::taskHandlerStateChanged, *this);
+	}
+}
+
+void TaskHandler::taskStart ()
+{
+}
+
+bool TaskHandler::taskMonitor (bool stillRunning)
+{
+	return stillRunning;
+}
+
+void TaskHandler::taskFinish (bool)
+{
 }
 
 void TaskHandler::callCallbacks (bool aborted)
@@ -151,10 +296,20 @@ void TaskHandler::callCallbacks (bool aborted)
 	callbacks.clear ();
 }
 
-void TaskHandler::addCallback (Callback* callbackToAdd)
+void TaskHandler::addListener (Listener* listener)
 {
-	callbacks.add (callbackToAdd);
+	listeners.add (listener);
 }
 
+void TaskHandler::removeListener (Listener* listener)
+{
+	listeners.remove (listener);
+}
+
+void TaskHandler::addCallback (Callback* callbackToAdd)
+{
+	if (callbackToAdd != nullptr)
+		callbacks.add (callbackToAdd);
+}
 
 ///////////////////////////////////////////////////////////////////////////////

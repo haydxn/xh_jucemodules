@@ -21,7 +21,7 @@ public:
     
 	virtual ~DummyTask ();
 
-	virtual juce::Result performTask ();
+	virtual juce::Result run ();
     
 private:
 	

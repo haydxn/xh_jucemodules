@@ -11,7 +11,7 @@ DummyTask::~DummyTask ()
 {
 }
 
-Result DummyTask::performTask ()
+Result DummyTask::run ()
 {
 	if (duration.inSeconds() < 0.0)
 		return Result::ok ();
@@ -32,7 +32,7 @@ Result DummyTask::performTask ()
 			progress = elapsed.inSeconds() / duration.inSeconds();
 		setProgress(progress);
 
-		Thread::sleep (100);
+		Thread::sleep (50);
 	}
 
 	return Result::ok ();

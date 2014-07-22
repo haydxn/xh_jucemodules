@@ -4,7 +4,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 class TaskThreadWithProgressWindow	:	public juce::ThreadWithProgressWindow,
-                                        public ProgressiveTask::Listener
+                                        public ProgressiveTask::Context::Listener,
+                                        public ProgressiveTask::Context
 {
 public:
 
@@ -15,25 +16,27 @@ public:
 
 	void run () override;
 	void threadComplete (bool userPressedCancel) override;
+    
+    virtual bool currentTaskShouldExit () override;
 
 	juce::Result getResult () const;
 
 	void taskStatusMessageChanged (ProgressiveTask* task) override;
 	void taskProgressChanged (ProgressiveTask* task) override;
 
-	class Listener
-	{
-	public:
-		virtual ~Listener () {}
-		virtual void progressiveTaskFinished (TaskThreadWithProgressWindow& runner, bool userCancelled) = 0;
-	private:
-	};
+//	class Listener
+//	{
+//	public:
+//		virtual ~Listener () {}
+//		virtual void progressiveTaskFinished (TaskThreadWithProgressWindow& runner, bool userCancelled) = 0;
+//	private:
+//	};
 
-	void addListener (Listener* listener);
-	void removeListener (Listener* listener);
+//	void addListener (Listener* listener);
+//	void removeListener (Listener* listener);
 
 	static juce::Result runTaskSynchronously (ProgressiveTask* task, bool owned, const juce::String& title, juce::Component* comp);
-	static TaskThreadWithProgressWindow& runTask (juce::Identifier id, ProgressiveTask* task, bool owned, const juce::String& title, juce::Component* comp, Listener* listener);
+	static TaskThreadWithProgressWindow& runTask (juce::Identifier id, ProgressiveTask* task, bool owned, const juce::String& title, juce::Component* comp);
 
 private:
 
@@ -42,7 +45,7 @@ private:
 	juce::OptionalScopedPointer< ProgressiveTask > task;
 	juce::Result result;
 	juce::Identifier taskId;
-	juce::ListenerList< Listener > listeners;
+//	juce::ListenerList< Listener > listeners;
 	bool async;
 };
 
