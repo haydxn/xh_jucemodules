@@ -47,7 +47,7 @@ String SerialTask::formatStatusMessageFromSubTask (ProgressiveTask& subTask)
 	else return ProgressiveTask::formatStatusMessageFromSubTask (subTask);
 }
 
-void SerialTask::subTaskStarting (ProgressiveTask*, int index, int count)
+void SerialTask::subTaskStarting (ProgressiveTask*, int , int )
 {
 }
 

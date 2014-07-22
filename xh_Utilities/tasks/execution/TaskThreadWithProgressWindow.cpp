@@ -40,7 +40,7 @@ void TaskThreadWithProgressWindow::run ()
 	}
 }
 
-void TaskThreadWithProgressWindow::threadComplete (bool userPressedCancel)
+void TaskThreadWithProgressWindow::threadComplete (bool )
 {
 //	listeners.call (&Listener::progressiveTaskFinished, *this, userPressedCancel);
 

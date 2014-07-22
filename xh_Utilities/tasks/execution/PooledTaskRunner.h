@@ -93,9 +93,9 @@ public:
     
     virtual Job* createJobForHandler (TaskHandler* handler);
     
-    virtual void taskJobAdded (Job& taskJob) {};
+    virtual void taskJobAdded (Job& ) {};
 
-    virtual void taskJobFinished (Job& taskJob) {};
+    virtual void taskJobFinished (Job& ) {};
 
     TaskHandlerCreator& getHandlerCreator () { return handlerCreator; }
 

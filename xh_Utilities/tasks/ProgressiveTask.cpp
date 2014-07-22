@@ -10,55 +10,50 @@ void ProgressiveTask::Context::removeListener (Listener* listener)
 	listeners.remove (listener);
 }
 
-///////////////////////////////////////////////////////////////////////////////
-
-ProgressiveTask::ExecutionScope::SubTaskInfo::SubTaskInfo (ExecutionScope& scope,
-                                                         ProgressiveTask& taskToPerform,
-                                                         double proportion,
-                                                         int index_, int count_)
-:   parentScope (scope),
-    task (taskToPerform),
-    index (index_),
-    count (count_),
-    progressAtStart(scope.progress),
-    progressAtEnd (scope.progress + proportion)
-{
-    parentScope.subTask = this;
-}
-
-ProgressiveTask::ExecutionScope::SubTaskInfo::~SubTaskInfo ()
-{
-    parentScope.subTask = nullptr;
-}
-
-double ProgressiveTask::ExecutionScope::SubTaskInfo::interpolateProgress (double amount) const
-{
-    double progress = progressAtStart + (amount * (progressAtEnd - progressAtStart));
-    return jlimit (0.0, 1.0, progress);
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 
-ProgressiveTask::ExecutionScope::ExecutionScope (Context& executionContext,
-                                             ProgressiveTask& ownerTask, ProgressiveTask* parentTask)
+ProgressiveTask::ExecutionScope::ExecutionScope (Context& executionContext, ProgressiveTask& task_, 
+												 ExecutionScope* parentScope_,
+												double proportionOfProgress, 
+												int index_, int count_)
 :   context (executionContext),
-    task (ownerTask),
-    parent (parentTask),
-    subTask(nullptr),
-    progress (0.0)
+	task (task_),
+	parentScope (parentScope_),
+	subTaskScope (nullptr),
+	progress (0.0),
+	progressAtStart (0.0),
+	progressAtEnd (1.0),
+	index (index_),
+	count (count_)
 {
-    ScopedLock lock (context.getLock());
-    
-    jassert (task.scope == nullptr);
-    task.scope = this;
+	ScopedLock lock (context.getLock());
+
+	jassert (task.scope == nullptr);
+
+	task.scope = this;
+
+	if (parentScope != nullptr)
+	{
+		parentScope->subTaskScope = this;
+		progressAtStart = parentScope->progress;
+		progressAtEnd = jmin (progressAtStart + proportionOfProgress, 1.0);
+	}
 }
 
 ProgressiveTask::ExecutionScope::~ExecutionScope ()
 {
     ScopedLock lock (context.getLock());
 
-    jassert (subTask == nullptr);
-    task.scope = nullptr;
+	jassert (subTaskScope == nullptr);
+    
+	task.scope = nullptr;
+
+	if (parentScope != nullptr)
+	{
+		jassert (parentScope->subTaskScope == this);
+		parentScope->subTaskScope = nullptr;
+	}
 }
 
 ProgressiveTask& ProgressiveTask::ExecutionScope::getTask ()
@@ -75,10 +70,9 @@ void ProgressiveTask::ExecutionScope::setProgress (double newProgress)
 {
     progress = jlimit (0.0, 1.0, newProgress);
     
-    if (parent != nullptr)
+    if (parentScope != nullptr)
     {
-        double parentProgress = parent->scope->subTask->interpolateProgress (progress);
-        parent->scope->setProgress (parentProgress);
+        parentScope->setProgress (interpolateProgress (progress));
     }
     else
     {
@@ -91,15 +85,21 @@ void ProgressiveTask::ExecutionScope::setStatusMessage (const String& message)
 {
     statusMessage = message;
     
-    if (parent != nullptr)
+    if (parentScope != nullptr)
     {
-        parent->scope->setStatusMessage (parent->formatStatusMessageFromSubTask (task));
+        parentScope->setStatusMessage (parentScope->getTask().formatStatusMessageFromSubTask (task));
     }
     else
     {
         context.listeners.call (&ProgressiveTask::Context::Listener::taskStatusMessageChanged, &task);
     }
     //    task.notifyStatusChanged();
+}
+
+double ProgressiveTask::ExecutionScope::interpolateProgress (double amount) const
+{
+	double progress = progressAtStart + (amount * (progressAtEnd - progressAtStart));
+	return jlimit (0.0, 1.0, progress);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -180,9 +180,9 @@ void ProgressiveTask::abort ()
 	abortSignal = true;
 	if (scope != nullptr)
     {
-        if (scope->subTask != nullptr)
+        if (scope->subTaskScope != nullptr)
         {
-            scope->subTask->task.abort ();
+            scope->subTaskScope->task.abort ();
         }
     }
 }
@@ -208,18 +208,7 @@ Result ProgressiveTask::performSubTask (ProgressiveTask& taskToPerform, double p
     
     if (scope != nullptr && !taskToPerform.isRunning())
     {
-        //todo: maybe just make SubTaskInfo have/be a scope, so that the lock
-        //      can be safely scoped in the constructor. Even simpler would be
-        //      to make the scope just hold potential for subtask stuff, so that
-        //      there is a single common scope type - though that would mean
-        //      a chunk of stuff is unused for basic tasks...
-        //      For now, i'll just enter and exit here...
-
-        scope->getContext().getLock().enter ();
-        ExecutionScope::SubTaskInfo info (*scope, taskToPerform, proportionOfProgress, index, count);
-        ExecutionScope subTaskScope (scope->getContext(), taskToPerform, this);
-        scope->getContext().getLock().exit ();
-
+		ExecutionScope subTask (scope->getContext(), taskToPerform, scope, proportionOfProgress, index, count);
         return taskToPerform.run ();
     }
     return taskAlreadyRunning;

@@ -5,6 +5,10 @@
 /**
 	Base for tasks which will take long enough to need to run on a background
 	thread, and provide status and progress feedback to the user.
+ 
+    A task can run sub-tasks, and progress calculations are automatically
+    carried out in such a way that allows each task to only concern itself
+    with its own local normalised progress value.
 */
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -20,7 +24,8 @@ public:
         Base for objects that will act as a thread context for running a task
         (e.g. a Thread, a ThreadPoolJob, or some other similar non juce-based
         concurrency object). This provides the interface for allowing the task
-        to be interrupted.
+        to be interrupted, as well as forwarding notifications from them to
+        any registered Listener objects.
      */
     ///////////////////////////////////////////////////////////////////////////
 
@@ -30,8 +35,19 @@ public:
         
         virtual ~Context () {}
         
+        /** This must be defined to return true if the context thread needs to
+            terminate, allowing the active task to abort itself. */
         virtual bool currentTaskShouldExit () = 0;
         
+        ///////////////////////////////////////////////////////////////////////
+        /**
+            Listener class for receiving notifications from the active task
+            currently running on the target ProgressiveTask::Context. Be aware
+            that these callbacks all occur on the context thread, and so you
+            should take suitable care in communicating with the message thread.
+            Of course, this also means that it is safe to inspect a task's
+            ExecutionScope from within them.
+         */
         ///////////////////////////////////////////////////////////////////////
 
         class Listener
@@ -39,9 +55,9 @@ public:
         public:
             virtual ~Listener () {}
             
-            /// Called in response to notifyStatusChanged ()
+            /// Called whenever the active task's status message changes.
             virtual void taskStatusMessageChanged (ProgressiveTask* task) = 0;
-            /// Called in response to notifyProgressChanged ()
+            /// Called whenever the active task's progress changes.
             virtual void taskProgressChanged (ProgressiveTask* task) = 0;
         };
 
@@ -53,6 +69,9 @@ public:
         /// Remove a listener from this context.
         void removeListener (Listener* listener);
 
+        /** Returns this context's lock, allowing you to ensure that the active
+            task's ExecutionScope hierarchy does not change whilst you inspect
+            it. */
         const juce::CriticalSection& getLock () const { return lock; }
 
     private:
@@ -80,6 +99,10 @@ public:
     /** Perform the task immediately, using the provided context. */
     juce::Result performTask (Context& context);
     
+    /** Returns true if this task currently has an ExecutionScope. This is
+        a volatile property, as it is governed by the context thread. If you
+        need to follow up with any further inspection from another thread, you 
+        should ensure that you lock the context first. */
     bool isRunning () const;
 
 	/** This must be implemented to perform this task, and should a Result
@@ -93,7 +116,8 @@ public:
      */
 	virtual juce::Result run () = 0;
 
-	/** Set the current progress for this task.
+	/** Set the current progress for this task. Note that this is only really
+        safe to call from the context of the task itself.
      
         @param  newProgress          The current progress.
         @see    advanceProgress
@@ -242,60 +266,38 @@ public:
         
         ~ExecutionScope ();
         
+		Context& getContext ();
         ProgressiveTask& getTask ();
-        Context& getContext ();
+		const ExecutionScope* getSubTaskScope () const;
+		const ExecutionScope* getParentScope () const;
         
         void setProgress (double progress);
         void setStatusMessage (const juce::String& message);
-        
-        ///////////////////////////////////////////////////////////////////////
-        /**
-            Holds information about an active subtask. This can be inspected,
-            but it is only guaranteed to be safe within callbacks from the 
-            task's running context (since it will be destroyed as soon as the
-            subtask finishes on that thread).
-         */
-        ///////////////////////////////////////////////////////////////////////
 
-        class SubTaskInfo
-        {
-        public:
-           
-            ExecutionScope& parentScope;
-            ProgressiveTask& task;
-            int index;
-            int count;
-            double progressAtStart;
-            double progressAtEnd;
-            
-            double interpolateProgress (double amount) const;
-            
-        private:
+		double interpolateProgress (double amount) const;
 
-            SubTaskInfo (ExecutionScope& scope, ProgressiveTask& task, double proportion, int index, int count);
-            ~SubTaskInfo ();
-            friend class ExecutionScope;
-            friend class ProgressiveTask;
-        };
-        
-        ///////////////////////////////////////////////////////////////////////
-
-        const SubTaskInfo* getSubTaskInfo () const;
-        
     private:
         
-        ExecutionScope (Context& executionContext, ProgressiveTask& task, ProgressiveTask* parentTask = nullptr);
+
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ExecutionScope);
+
+        ExecutionScope (Context& executionContext, ProgressiveTask& task, ExecutionScope* parentScope = nullptr,
+						double proportionOfProgress = 1.0, int index = 0, int count = 1);
+
         juce::Result performSubTask (ProgressiveTask& task, double proportion, int index, int count);
         
         friend class ProgressiveTask;
         
         Context& context;
         ProgressiveTask& task;
-        ProgressiveTask* parent;
-        SubTaskInfo* subTask;
-        juce::String statusMessage;
-        double progress;
-        
+		ExecutionScope* parentScope;
+		ExecutionScope* subTaskScope;
+		juce::String statusMessage;
+		double progress;
+		double progressAtStart;
+		double progressAtEnd;
+		int index;
+		int count;
     };
 
     ///////////////////////////////////////////////////////////////////////////

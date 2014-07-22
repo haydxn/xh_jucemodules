@@ -266,7 +266,7 @@ void TaskHandlerListBoxModel::paintListBoxItem (int, juce::Graphics&, int, int, 
 {
 }
 
-Component* TaskHandlerListBoxModel::refreshComponentForRow (int rowNumber, bool isRowSelected, Component* existingComponentToUpdate)
+Component* TaskHandlerListBoxModel::refreshComponentForRow (int rowNumber, bool , Component* existingComponentToUpdate)
 {
 	ScopedPointer<Component> comp (existingComponentToUpdate);
 
@@ -296,63 +296,74 @@ Component* TaskHandlerListBoxModel::refreshComponentForRow (int rowNumber, bool 
 
 ///////////////////////////////////////////////////////////////////////////////
 
-//PooledTaskListView::PooledTaskListView (TaskThreadPool& target)
-//:	taskRunner(target)
-//{
-//	taskRunner.addListener(this);
-//	listBox = new ListBox ("List",this);
-//	listBox->setRowHeight(35);
-//	addAndMakeVisible(listBox);
-//	listBox->updateContent();
-//}
-//
-//PooledTaskListView::~PooledTaskListView ()
-//{
-//	taskRunner.removeListener(this);
-//}
-//
-//void PooledTaskListView::resized ()
-//{
-//	listBox->setBoundsInset (BorderSize<int>(0));
-//}
-//
-//void PooledTaskListView::refresh ()
-//{
-//	refreshTasks();
-//	listBox->updateContent();
-//	repaint();
-//}
-//
-//void PooledTaskListView::getAllTaskHandlers (TaskHandlerArray& tasks)
-//{
-//	ScopedLock lock (taskRunner.getLock());
-//
-//	int n = 0;
-//	
-////	n = taskRunner.getNumFinishedTasks();
-////	for (int i = 0; i < n; i++)
-////	{
-////		tasks.add (taskRunner.getFinishedTask(i));
-////	}
-////	n = taskRunner.getNumUnfinishedTasks ();
-////	for (int i = 0; i < n; i++)
-////	{
-////		tasks.add (taskRunner.getUnfinishedTask(i));
-////	}
-//}
-//
-//void PooledTaskListView::listBoxItemDoubleClicked(int row, const MouseEvent&)
-//{
-//	TaskHandler* handler = getTaskForRow (row);
-//	if (handler != nullptr)
+PooledTaskListView::PooledTaskListView (TaskThreadPool& target)
+:	taskRunner(target)
+{
+	taskRunner.addListener(this);
+	listBox = new ListBox ("List",this);
+	listBox->setRowHeight(35);
+	addAndMakeVisible(listBox);
+	listBox->updateContent();
+}
+
+PooledTaskListView::~PooledTaskListView ()
+{
+	taskRunner.removeListener(this);
+}
+
+void PooledTaskListView::resized ()
+{
+	listBox->setBoundsInset (BorderSize<int>(0));
+}
+
+void PooledTaskListView::refresh ()
+{
+	tasks.clear();
+	getAllTaskHandlers(tasks);
+	listBox->updateContent();
+	repaint();
+}
+
+void PooledTaskListView::getAllTaskHandlers (TaskHandlerArray& tasks)
+{
+	ScopedLock lock (taskRunner.getLock());
+
+	int n = 0;
+	
+	n = taskRunner.getNumTasks();
+	for (int i = 0; i < n; i++)
+	{
+		tasks.add (taskRunner.getTaskHandler(i));
+	}
+//	n = taskRunner.getNumUnfinishedTasks ();
+//	for (int i = 0; i < n; i++)
 //	{
-//		handler->getTask().abort();
+//		tasks.add (taskRunner.getUnfinishedTask(i));
 //	}
-//}
-//
-//void PooledTaskListView::pooledTasksChanged (TaskThreadPool&)
-//{
-//	refresh();
-//}
+}
+
+int PooledTaskListView::getNumRows ()
+{
+	return tasks.size();
+}
+
+TaskHandler* PooledTaskListView::getTaskForRow (int rowNumber)
+{
+	return tasks[rowNumber];
+}
+
+void PooledTaskListView::listBoxItemDoubleClicked(int row, const MouseEvent&)
+{
+	TaskHandler* handler = getTaskForRow (row);
+	if (handler != nullptr)
+	{
+		handler->getTask().abort();
+	}
+}
+
+void PooledTaskListView::pooledTasksChanged (TaskThreadPool&)
+{
+	refresh();
+}
 
 ///////////////////////////////////////////////////////////////////////////////

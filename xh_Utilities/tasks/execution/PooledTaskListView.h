@@ -80,29 +80,33 @@ public:
 */
 ///////////////////////////////////////////////////////////////////////////////
 
-//class PooledTaskListView	:	public juce::Component,
-//								public TaskHandlerListBoxModel,
-//								public TaskThreadPool::Listener
-//{
-//public:
-//
-//	PooledTaskListView (TaskThreadPool& target);
-//	virtual ~PooledTaskListView ();
-//
-//	virtual void resized () override;
-//
-//	virtual void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override;
-//	virtual void pooledTasksChanged (TaskThreadPool& source) override;
-//
-//	virtual void getAllTaskHandlers (TaskHandlerArray& tasks) override;
-//
-//	void refresh ();
-//
-//private:
-//
-//	TaskThreadPool& taskRunner;
-//	juce::ScopedPointer< juce::ListBox > listBox;
-//};
+class PooledTaskListView	:	public juce::Component,
+								public TaskHandlerListBoxModel,
+								public TaskThreadPool::Listener
+{
+public:
+
+	PooledTaskListView (TaskThreadPool& target);
+	virtual ~PooledTaskListView ();
+
+	virtual void resized () override;
+
+	virtual int getNumRows () override;
+	virtual TaskHandler* getTaskForRow (int rowNumber) override;
+
+	virtual void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override;
+	virtual void pooledTasksChanged (TaskThreadPool& source) override;
+
+	void getAllTaskHandlers (TaskHandlerArray& tasks);
+
+	void refresh ();
+
+private:
+
+	TaskHandlerArray tasks;
+	TaskThreadPool& taskRunner;
+	juce::ScopedPointer< juce::ListBox > listBox;
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 
