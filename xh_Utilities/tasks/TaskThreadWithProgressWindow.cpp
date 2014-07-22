@@ -25,24 +25,19 @@ Identifier TaskThreadWithProgressWindow::getId () const
 	return taskId;
 }
 
-bool TaskThreadWithProgressWindow::currentTaskShouldExit ()
-{
-    return threadShouldExit ();
-}
-
 void TaskThreadWithProgressWindow::run ()
 {
 	if (task != nullptr)
 	{
-		addListener (this);
-		result = task->run ();
-		removeListener (this);
+		task->addListener (this);
+		result = task->performTask ();
+		task->removeListener (this);
 	}
 }
 
 void TaskThreadWithProgressWindow::threadComplete (bool userPressedCancel)
 {
-//	listeners.call (&Listener::progressiveTaskFinished, *this, userPressedCancel);
+	listeners.call (&Listener::progressiveTaskFinished, *this, userPressedCancel);
 
 	if (result.failed ())
 	{
@@ -60,6 +55,16 @@ Result TaskThreadWithProgressWindow::getResult () const
 	return result;
 }
 
+void TaskThreadWithProgressWindow::addListener (Listener* listener)
+{
+	listeners.add (listener);
+}
+
+void TaskThreadWithProgressWindow::removeListener (Listener* listener)
+{
+	listeners.remove (listener);
+}
+
 Result TaskThreadWithProgressWindow::runTaskSynchronously (ProgressiveTask* task, bool owned, const String& title, Component* comp)
 {
 	if (task == nullptr)
@@ -73,11 +78,11 @@ Result TaskThreadWithProgressWindow::runTaskSynchronously (ProgressiveTask* task
 	return Result::fail ("Aborted");
 }
 
-TaskThreadWithProgressWindow& TaskThreadWithProgressWindow::runTask (Identifier id, ProgressiveTask* task, bool owned, const String& title, Component* comp)
+TaskThreadWithProgressWindow& TaskThreadWithProgressWindow::runTask (Identifier id, ProgressiveTask* task, bool owned, const String& title, Component* comp, Listener* listener)
 {
 	TaskThreadWithProgressWindow* runner = new TaskThreadWithProgressWindow (task, owned, title, comp, id);
-//	if (listener != nullptr)
-//		runner->addListener (listener);
+	if (listener != nullptr)
+		runner->addListener (listener);
 	runner->launchThread ();
 	runner->async = true;
 	return *runner;

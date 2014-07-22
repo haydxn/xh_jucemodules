@@ -61,15 +61,10 @@ void TaskThread::launchThread (int priority, bool destroyWhenComplete)
 void TaskThread::run ()
 {
 	if (taskHandler)
-		taskHandler->performTask (*this);
+		taskHandler->performTask();
 
 	if (selfDestructCallback != nullptr)
 		selfDestructCallback->trigger();
-}
-
-bool TaskThread::currentTaskShouldExit ()
-{
-    return threadShouldExit();
 }
 
 void TaskThread::selfDestruct()

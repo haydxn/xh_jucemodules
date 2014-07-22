@@ -62,7 +62,7 @@ public:
 		taskFunction = function;
 	}
 
-	juce::Result run () override
+	juce::Result performTask () override
 	{
 		return (targetInstance->*(taskFunction)) (*this);
 	}
@@ -88,7 +88,7 @@ public:
 		{
 		}
 
-		juce::Result run () override
+		juce::Result performTask () override
 		{
 			return (targetInstance->*(taskFunction)) (*this, param1);
 		}
@@ -123,7 +123,7 @@ public:
 		{
 		}
 
-		juce::Result run () override
+		juce::Result performTask () override
 		{
 			return (targetInstance->*(taskFunction)) (*this, param1, param2);
 		}

@@ -7,8 +7,7 @@
 */
 ///////////////////////////////////////////////////////////////////////////////
 
-class TaskThread	:	public juce::Thread,
-                        public ProgressiveTask::Context
+class TaskThread	:	public juce::Thread
 {
 public:
 
@@ -25,8 +24,6 @@ public:
 
 	void launchThread (int priority, bool destroyWhenComplete);
 	juce::Result runSynchronously (int priority);
-    
-    virtual bool currentTaskShouldExit () override;
 
 	static juce::Result runSynchronously (TaskHandler* handler, const juce::String& title, int priority = 5);
 	static void launch (TaskHandler* handler, const juce::String& title, int priority = 5);

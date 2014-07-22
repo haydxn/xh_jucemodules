@@ -15,13 +15,9 @@ using namespace juce;
 #include "tasks/SerialTask.cpp"
 #include "tasks/MemberFunctionTask.cpp"
 #include "tasks/TaskHandler.cpp"
+#include "tasks/TaskThread.cpp"
 
-#include "tasks/execution/TaskThreadPoolJob.cpp"
-#include "tasks/execution/TaskQueue.cpp"
-#include "tasks/execution/TaskThread.cpp"
-#include "tasks/execution/PooledTaskRunner.cpp"
-#include "tasks/execution/PooledTaskListView.cpp"
-#include "tasks/execution/ModalTaskPopup.cpp"
-#include "tasks/execution/TaskThreadWithProgressWindow.cpp"
+#include "tasks/ModalTaskPopup.cpp"
+#include "tasks/TaskThreadWithProgressWindow.cpp"
 
 ///////////////////////////////////////////////////////////////////////////////
