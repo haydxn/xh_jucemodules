@@ -3,61 +3,53 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-class TaskHandlerViewComponent	:	public juce::Component,
-                                    public TaskHandler::Listener
+class TaskContextViewComponent	:	public juce::Component,
+									public TaskInterface
 {
 public:
 
-	TaskHandlerViewComponent (TaskHandler* taskToView = nullptr);
-	~TaskHandlerViewComponent ();
+	TaskContextViewComponent ();
+	~TaskContextViewComponent ();
 
-	void setTask (TaskHandler* taskToView, bool triggerRefresh = true);
-	TaskHandler* getTask ();
-
-	virtual void refresh ();
-	virtual void taskChanged ();
-
+	virtual void refresh (TaskContext& context) override;
 	virtual void paint (juce::Graphics& g) override;
-	virtual void taskHandlerStateChanged (TaskHandler& taskHandler) override;
-
-private:
-
-	juce::WeakReference< TaskHandler > task;
 
 };
 
+
 ///////////////////////////////////////////////////////////////////////////////
 
-class TaskHandlerListBoxModel	:	public juce::ListBoxModel
+class TaskContextListBoxModel	:	public juce::ListBoxModel
 {
 public:
 
-	typedef juce::Array< TaskHandler::WeakRef > TaskHandlerArray;
+	typedef juce::ReferenceCountedArray< TaskContext > TaskContextArray;
 
-	TaskHandlerListBoxModel ();
-	virtual ~TaskHandlerListBoxModel ();
+	TaskContextListBoxModel ();
+	virtual ~TaskContextListBoxModel ();
 
 	virtual int getNumRows () = 0;
-	virtual TaskHandler* getTaskForRow (int rowNumber) = 0;
+	virtual TaskContext* getTaskForRow (int rowNumber) = 0;
 
-	virtual TaskHandlerViewComponent* createViewForTaskHandler (TaskHandler* handler);
+	virtual TaskContextViewComponent* createViewForTaskContext (TaskContext* handler);
 
 	virtual void paintListBoxItem (int rowNumber, juce::Graphics& g, int width, int height, bool rowIsSelected) override;
 	virtual juce::Component* refreshComponentForRow (int rowNumber, bool isRowSelected, juce::Component* existingComponentToUpdate) override;
 
 	///////////////////////////////////////////////////////////////////////////
 
-	class ItemComponent	:	public TaskHandlerViewComponent
+	class ItemComponent	:	public TaskContextViewComponent
 	{
 	public:
 
-		ItemComponent (TaskHandler* handler);
+		ItemComponent (TaskContext* handler);
 		virtual ~ItemComponent ();
 
-		virtual void refresh () override;
-		virtual void taskChanged () override;
+		virtual void refresh (TaskContext& context) override;
+		virtual void taskContextChanged () override;
 		virtual void paint (juce::Graphics& g) override;
 		virtual void resized () override;
+		virtual void taskProgressChanged (TaskContext& context) override;
 
 	private:
 
@@ -67,13 +59,12 @@ public:
 		juce::Label nameLabel;
 		juce::ScopedPointer< juce::Label > stateLabel;
 		juce::ScopedPointer< juce::ProgressBar > progressBar;
-
+		double progress;
 	};
 
 	///////////////////////////////////////////////////////////////////////////
 
 };
-
 
 ///////////////////////////////////////////////////////////////////////////////
 /**
@@ -81,7 +72,7 @@ public:
 ///////////////////////////////////////////////////////////////////////////////
 
 class PooledTaskListView	:	public juce::Component,
-								public TaskHandlerListBoxModel,
+								public TaskContextListBoxModel,
 								public TaskThreadPool::Listener
 {
 public:
@@ -92,18 +83,18 @@ public:
 	virtual void resized () override;
 
 	virtual int getNumRows () override;
-	virtual TaskHandler* getTaskForRow (int rowNumber) override;
+	virtual TaskContext* getTaskForRow (int rowNumber) override;
 
 	virtual void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override;
 	virtual void pooledTasksChanged (TaskThreadPool& source) override;
 
-	void getAllTaskHandlers (TaskHandlerArray& tasks);
+	void getAllTaskHandlers (TaskContextArray& tasks);
 
 	void refresh ();
 
 private:
 
-	TaskHandlerArray tasks;
+	TaskContextArray tasks;
 	TaskThreadPool& taskRunner;
 	juce::ScopedPointer< juce::ListBox > listBox;
 };

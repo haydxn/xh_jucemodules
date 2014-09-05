@@ -15,46 +15,43 @@ public:
 	TaskThreadPool (int maxConcurrentTasks = 1);
 	virtual ~TaskThreadPool ();
 
-	TaskHandler& addTask (ProgressiveTask* taskToRun, juce::Identifier id = juce::Identifier::null);
-	void addTask (TaskHandler* handler);
+	TaskContext& addTask (ProgressiveTask* taskToRun, juce::Identifier id = juce::Identifier::null);
+	void addTask (TaskContext* context);
 
     bool removeAllTasks (bool interruptRunningTasks, int timeOutMilliseconds);
 	bool removeAllTasksWithId (juce::Identifier id, bool interruptRunningTasks, int timeOutMilliseconds);
 
 	int getNumTasks () const;
-	TaskHandler* getTaskHandler (int index) const;
+	TaskContext* getTaskContext (int index) const;
     
     ///////////////////////////////////////////////////////
 
     class Job	:	public juce::ThreadPoolJob,
-                    public ProgressiveTask::Context
+                    public TaskThreadBase
     {
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Job);
     public:
         
-        Job (TaskHandler* handler, TaskThreadPool& owner);
+        Job (TaskContext* handler, TaskThreadPool& owner);
         virtual ~Job ();
         
         TaskThreadPool& getOwner ();
         
-        TaskHandler* getTaskHandler ();
-        TaskHandler* releaseTaskHandler ();
+		TaskContext* getTaskContext  ();
         
         juce::Identifier getId () const;
         
         virtual juce::ThreadPoolJob::JobStatus runJob () override;
         
         virtual bool currentTaskShouldExit () override;
+		virtual bool isCurrentTaskThread () override;
 
     private:
         
-        juce::ScopedPointer< TaskHandler > taskHandler;
+        TaskContext::Ptr taskContext;
         TaskThreadPool& owner;
         
     };
-
-    typedef Factory2Param< Job, TaskHandler*, TaskThreadPool& > JobFactory;
-    typedef JobFactory::Interface<> JobCreator;
 
     ///////////////////////////////////////////////////////
 
@@ -89,23 +86,18 @@ public:
 
 	const juce::CriticalSection& getLock () const;
     
-    virtual TaskHandler* createHandlerForTask (ProgressiveTask* task);
-    
-    virtual Job* createJobForHandler (TaskHandler* handler);
+	virtual TaskContext* createContextForTask (ProgressiveTask* task);
     
     virtual void taskJobAdded (Job& ) {};
 
     virtual void taskJobFinished (Job& ) {};
-
-    TaskHandlerCreator& getHandlerCreator () { return handlerCreator; }
-
-    JobCreator& getJobCreator () { return jobCreator; }
     
 private:
     
     class IdSelector;
 	
-	void addHandlerToPool (TaskHandler* task);
+	void addContextToPool (TaskContext* task);
+	Job* createJobForContext (TaskContext* context);
     void jobFinishedInternal (Job& taskJob);
 
 	void itemsChanged ();
@@ -115,10 +107,7 @@ private:
 
 	AsyncFunc itemsChangedFunc;
 	juce::ScopedPointer< juce::ThreadPool > pool;
-    
-    TaskHandlerCreator handlerCreator;
-    JobCreator jobCreator;
-    
+   
     juce::ListenerList< Listener > listeners;
 	juce::CriticalSection listSection;
 	int maxConcurrentTaskLimit;

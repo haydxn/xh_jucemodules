@@ -25,16 +25,16 @@ public:
 
 ///////////////////////////////////////////////////////////////////////////////
 
-TaskThreadPool::Job::Job (TaskHandler* handler, TaskThreadPool& owner_)
-:	ThreadPoolJob (handler != nullptr ? handler->getTask().getName() : String::empty),
-    taskHandler (handler),
+TaskThreadPool::Job::Job (TaskContext* context, TaskThreadPool& owner_)
+:	ThreadPoolJob (context != nullptr ? context->getTask().getName() : String::empty),
+    taskContext (context),
     owner (owner_)
 {
 }
 
 TaskThreadPool::Job::~Job ()
 {
-	taskHandler = nullptr;
+	taskContext = nullptr;
 }
 
 TaskThreadPool& TaskThreadPool::Job::getOwner ()
@@ -42,30 +42,25 @@ TaskThreadPool& TaskThreadPool::Job::getOwner ()
     return owner;
 }
 
-TaskHandler* TaskThreadPool::Job::getTaskHandler ()
+TaskContext* TaskThreadPool::Job::getTaskContext()
 {
-	return taskHandler;
-}
-
-TaskHandler* TaskThreadPool::Job::releaseTaskHandler ()
-{
-	return taskHandler.release();
+	return taskContext;
 }
 
 juce::Identifier TaskThreadPool::Job::getId () const
 {
-	if (taskHandler != nullptr)
+	if (taskContext != nullptr)
 	{
-		return taskHandler->getId();
+		//return taskHandler->getId();
 	}
 	return Identifier::null;
 }
 
 ThreadPoolJob::JobStatus TaskThreadPool::Job::runJob ()
 {
-	if (taskHandler != nullptr)
+	if (taskContext != nullptr)
 	{
-		taskHandler->performTask (*this);
+		runTask (taskContext);
 	}
     
     owner.jobFinishedInternal (*this);
@@ -76,6 +71,11 @@ ThreadPoolJob::JobStatus TaskThreadPool::Job::runJob ()
 bool TaskThreadPool::Job::currentTaskShouldExit ()
 {
     return shouldExit();
+}
+
+bool TaskThreadPool::Job::isCurrentTaskThread ()
+{
+	return getCurrentThreadPoolJob() == this;
 }
 
 
@@ -102,35 +102,35 @@ int TaskThreadPool::getNumTasks () const
 	return pool->getNumJobs ();
 }
 
-TaskHandler* TaskThreadPool::getTaskHandler (int index) const
+TaskContext* TaskThreadPool::getTaskContext (int index) const
 {
 	ScopedLock lock(getLock());
 	Job* job = dynamic_cast< Job* > (pool->getJob (index));
 	if (job != nullptr)
 	{
-		return job->getTaskHandler();
+		return job->getTaskContext();
 	}
 	return nullptr;
 }
 
-TaskHandler& TaskThreadPool::addTask (ProgressiveTask* taskToRun, Identifier id)
+TaskContext& TaskThreadPool::addTask (ProgressiveTask* taskToRun, Identifier id)
 {
-	TaskHandler* handler = createHandlerForTask (taskToRun);
+	TaskContext* context = createContextForTask (taskToRun);
 
-	if (handler == nullptr)
-		handler = new TaskHandler (taskToRun);
+	if (context == nullptr)
+		context = new TaskContext (taskToRun);
 
-    handler->setId (id);
+    //context->setId (id);
     
-	addHandlerToPool (handler);
-	return *handler;
+	addContextToPool (context);
+	return *context;
 }
 
-void TaskThreadPool::addTask (TaskHandler* handler)
+void TaskThreadPool::addTask (TaskContext* context)
 {
-    if (handler != nullptr)
+    if (context != nullptr)
     {
-        addHandlerToPool (handler);
+        addContextToPool (context);
     }
 }
 
@@ -145,15 +145,14 @@ bool TaskThreadPool::removeAllTasksWithId (juce::Identifier id, bool interruptRu
 	return pool->removeAllJobs (interruptRunningJobs, timeOutMilliseconds, &selector);
 }
 
-TaskHandler* TaskThreadPool::createHandlerForTask (ProgressiveTask* task)
+TaskContext* TaskThreadPool::createContextForTask (ProgressiveTask* task)
 {
-	return handlerCreator.create (task);//new TaskHandler (task);
+	return new TaskContext (task);//handlerCreator.create (task);//new TaskHandler (task);
 }
 
-TaskThreadPool::Job* TaskThreadPool::createJobForHandler (TaskHandler *handler)
+TaskThreadPool::Job* TaskThreadPool::createJobForContext (TaskContext* context)
 {
-    return jobCreator.create (handler, *this);
-    //return new Job (handler, *this);
+    return new Job (context, *this);
 }
 
 void TaskThreadPool::addListener (Listener* listener)
@@ -171,13 +170,13 @@ const CriticalSection& TaskThreadPool::getLock () const
 	return listSection;
 }
 
-void TaskThreadPool::addHandlerToPool (TaskHandler* handler)
+void TaskThreadPool::addContextToPool (TaskContext* context)
 {
-	Job* job = createJobForHandler (handler);
+	Job* job = createJobForContext (context);
 
     if (job == nullptr)
     {
-        job = new Job (handler, *this);
+        job = new Job (context, *this);
     }
 
     // Add to the pool...

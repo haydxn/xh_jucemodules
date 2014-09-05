@@ -19,21 +19,21 @@ juce::String TaskThread::getTitle () const
 	return title;
 }
 
-void TaskThread::setTask (TaskHandler* handler, bool)
+void TaskThread::setTask (TaskContext* handler, bool)
 {
-	taskHandler = handler;
+	activeTask = handler;
 }
 
-TaskHandler* TaskThread::getTaskHandler ()
+TaskContext* TaskThread::getTaskContext ()
 {
-	return taskHandler;
+	return activeTask;
 }
 
 ProgressiveTask* TaskThread::getTask () const
 {
-	if (taskHandler != nullptr)
+	if (activeTask != nullptr)
 	{
-		return &taskHandler->getTask ();
+		return &activeTask->getTask ();
 	}
 	return nullptr;
 }
@@ -42,15 +42,15 @@ Result TaskThread::runSynchronously (int priority)
 {
 	launchThread (priority, false);
 
-	while (!taskHandler->hasFinished() || isThreadRunning())
+	while (!activeTask->hasFinished() || isThreadRunning())
 		MessageManager::getInstance()->runDispatchLoopUntil (5);
 
-	return taskHandler->getResult();
+	return activeTask->getResult();
 }
 
 void TaskThread::launchThread (int priority, bool destroyWhenComplete)
 {
-	jassert (taskHandler != nullptr);
+	jassert (activeTask != nullptr);
 	
 	if (destroyWhenComplete)
 		selfDestructCallback = new AsyncFunc (*this, &TaskThread::selfDestruct);
@@ -60,8 +60,11 @@ void TaskThread::launchThread (int priority, bool destroyWhenComplete)
 
 void TaskThread::run ()
 {
-	if (taskHandler)
-		taskHandler->performTask (*this);
+	if (activeTask)
+	{
+		runTask (activeTask);
+	}
+		//taskHandler->performTask (*this);
 
 	if (selfDestructCallback != nullptr)
 		selfDestructCallback->trigger();
@@ -72,22 +75,27 @@ bool TaskThread::currentTaskShouldExit ()
     return threadShouldExit();
 }
 
+bool TaskThread::isCurrentTaskThread ()
+{
+	return getCurrentThread() == this;
+}
+
 void TaskThread::selfDestruct()
 {
 	delete this;
 }
 
-juce::Result TaskThread::runSynchronously (TaskHandler* task, const juce::String& title, int priority)
+juce::Result TaskThread::runSynchronously (TaskContext* task, const juce::String& title, int priority)
 {
 	TaskThread runner (title);
 	runner.setTask (task, true);
 	return runner.runSynchronously (priority);
 }
 
-void TaskThread::launch (TaskHandler* handler, const juce::String& title, int priority)
+void TaskThread::launch (TaskContext* task, const juce::String& title, int priority)
 {
 	TaskThread* runner = new TaskThread (title);
-	runner->setTask (handler, true);
+	runner->setTask (task, true);
 	runner->launchThread (priority, true);
 }
 

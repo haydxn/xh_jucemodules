@@ -8,7 +8,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 class TaskThread	:	public juce::Thread,
-                        public ProgressiveTask::Context
+                        public TaskThreadBase
 {
 public:
 
@@ -17,8 +17,8 @@ public:
 
 	juce::String getTitle () const;
 
-	void setTask (TaskHandler* task, bool owned);
-	TaskHandler* getTaskHandler ();
+	void setTask (TaskContext* task, bool owned);
+	TaskContext* getTaskContext ();
 	ProgressiveTask* getTask () const;
 
 	void run () override;
@@ -27,9 +27,10 @@ public:
 	juce::Result runSynchronously (int priority);
     
     virtual bool currentTaskShouldExit () override;
+	virtual bool isCurrentTaskThread () override;
 
-	static juce::Result runSynchronously (TaskHandler* handler, const juce::String& title, int priority = 5);
-	static void launch (TaskHandler* handler, const juce::String& title, int priority = 5);
+	static juce::Result runSynchronously (TaskContext* context, const juce::String& title, int priority = 5);
+	static void launch (TaskContext* context, const juce::String& title, int priority = 5);
 
 private:
 
@@ -38,7 +39,9 @@ private:
 
 	juce::ScopedPointer< AsyncFunc > selfDestructCallback;
 	juce::String title;
-	juce::ScopedPointer< TaskHandler > taskHandler;
+
+	TaskContext::Ptr activeTask;
+	
 	int timeoutMsWhenCancelling;
 	bool wasCancelled;
 

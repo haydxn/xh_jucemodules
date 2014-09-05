@@ -1,70 +1,34 @@
 
+
 ///////////////////////////////////////////////////////////////////////////////
 
-TaskHandlerViewComponent::TaskHandlerViewComponent (TaskHandler* taskToView)
+TaskContextViewComponent::TaskContextViewComponent ()
 {
-	setTask (taskToView, false);
 }
 
-TaskHandlerViewComponent::~TaskHandlerViewComponent ()
+TaskContextViewComponent::~TaskContextViewComponent ()
 {
-	setTask (nullptr, false);
 }
 
-void TaskHandlerViewComponent::setTask (TaskHandler* taskToView, bool triggerRefresh)
-{
-	if (taskToView != task)
-	{
-		if (task != nullptr)
-		{
-			task->removeListener (this);
-		}
-
-		task = taskToView;
-
-		if (taskToView != nullptr)
-		{
-			taskToView->addListener (this);
-		}
-
-		if (triggerRefresh)
-		{
-			taskChanged ();
-			refresh ();
-		}
-	}
-}
-
-TaskHandler* TaskHandlerViewComponent::getTask ()
-{
-	return task.get();
-}
-
-void TaskHandlerViewComponent::refresh ()
+void TaskContextViewComponent::refresh (TaskContext&)
 {
 	repaint ();
 }
 
-void TaskHandlerViewComponent::taskChanged ()
+void TaskContextViewComponent::paint (Graphics& g)
 {
-}
-
-void TaskHandlerViewComponent::paint (Graphics& g)
-{
-	TaskHandler* handler = getTask ();
+	TaskContext* handler = getTaskContext ();
 	if (handler != nullptr)
 	{
 
-
-
 		String name = handler->getTask().getName();
-		String msg = handler->getStatusMessage();
-		
-// 		if (rowIsSelected)
-// 		{
-// 			g.setColour (Colours::darkgrey.withAlpha(0.3f));
-// 			g.fillAll ();
-// 		}
+		String msg = handler->getTask().getStatusMessage();
+
+		// 		if (rowIsSelected)
+		// 		{
+		// 			g.setColour (Colours::darkgrey.withAlpha(0.3f));
+		// 			g.fillAll ();
+		// 		}
 
 		g.setColour (Colours::black);
 		Rectangle<int> area (0,0,getWidth(),getHeight());
@@ -72,46 +36,46 @@ void TaskHandlerViewComponent::paint (Graphics& g)
 
 		int halfHeight = getHeight()/2;
 		g.drawFittedText(handler->getTask().getName(), getLocalBounds().withTrimmedBottom(halfHeight).reduced(4), Justification::centredLeft, 1);
-		g.drawFittedText(handler->getStateDescription(), getLocalBounds().withTrimmedTop(halfHeight).reduced(4), Justification::centredLeft, 1);
+		//g.drawFittedText(handler->getStateDescription(), getLocalBounds().withTrimmedTop(halfHeight).reduced(4), Justification::centredLeft, 1);
 
 		switch (handler->getState())
 		{
-		case TaskHandler::taskPending:
+		case TaskContext::taskPending:
 			{
 				g.setColour (Colours::blue.withAlpha(0.2f));
 				g.fillRect (area.reduced(2));
 			}
 			break;
-		case TaskHandler::taskRunning:
+		case TaskContext::taskRunning:
 			{
-				double prog = handler->getOverallProgress();
+				double prog = handler->getTask().getProgress();//getOverallProgress();
 				g.setColour (Colours::hotpink.withAlpha(0.5f));
 				g.fillRect (area.reduced(2).withTrimmedRight (roundDoubleToInt (area.getWidth() * (1 - prog))));
 			}
 			break;
 
-		case TaskHandler::taskCompleted:
+		case TaskContext::taskCompleted:
 			{
 				g.setColour (Colours::green.withAlpha(0.5f));
 				g.fillRect (area.reduced(2));
 			}
 			break;
 
-		case TaskHandler::taskAborted:
+		case TaskContext::taskAborted:
 			{
 				g.setColour (Colours::red.withAlpha(0.5f));
 				g.fillRect (area.reduced(2));
 			}
 			break;
 
-		case TaskHandler::taskStarting:
+		case TaskContext::taskStarting:
 			{
 				g.setColour (Colours::brown.withAlpha(0.5f));
 				g.fillRect (area.reduced(2));
 			}
-            break;
-                
-        default:;
+			break;
+
+		default:;
 			break;
 		}
 
@@ -120,40 +84,32 @@ void TaskHandlerViewComponent::paint (Graphics& g)
 	}
 }
 
-void TaskHandlerViewComponent::taskHandlerStateChanged (TaskHandler&)
-{
-	refresh ();
-}
-
-
-
-
 ///////////////////////////////////////////////////////////////////////////////
 
-TaskHandlerListBoxModel::ItemComponent::ItemComponent (TaskHandler* handler)
-	:	TaskHandlerViewComponent (handler)
+TaskContextListBoxModel::ItemComponent::ItemComponent (TaskContext* handler)
 {
+	setTaskContext(handler);
 	addAndMakeVisible(&nameLabel);
 
 	setInterceptsMouseClicks(false,false);
 }
 
-TaskHandlerListBoxModel::ItemComponent::~ItemComponent ()
+TaskContextListBoxModel::ItemComponent::~ItemComponent ()
 {
 
 }
 
-void TaskHandlerListBoxModel::ItemComponent::setProgressBarVisible (bool shouldBeVisible)
+void TaskContextListBoxModel::ItemComponent::setProgressBarVisible (bool shouldBeVisible)
 {
 	bool isBarVisible = progressBar != nullptr;
 	if (shouldBeVisible != isBarVisible)
 	{
 		if (shouldBeVisible)
 		{
-			jassert (getTask() != nullptr);
+			jassert (getTaskContext() != nullptr);
 
 			stateLabel = nullptr;
-			progressBar = new ProgressBar (getTask()->getOverallProgressVariable());
+			progressBar = new ProgressBar (progress);
 			addAndMakeVisible(progressBar);
 		}
 		else
@@ -164,7 +120,7 @@ void TaskHandlerListBoxModel::ItemComponent::setProgressBarVisible (bool shouldB
 	}
 }
 
-void TaskHandlerListBoxModel::ItemComponent::setStateMessage (const String& message)
+void TaskContextListBoxModel::ItemComponent::setStateMessage (const String& message)
 {
 	setProgressBarVisible (false);
 
@@ -177,47 +133,43 @@ void TaskHandlerListBoxModel::ItemComponent::setStateMessage (const String& mess
 	resized ();
 }
 
-void TaskHandlerListBoxModel::ItemComponent::taskChanged ()
+void TaskContextListBoxModel::ItemComponent::taskContextChanged ()
 {
 	setProgressBarVisible (false);
 }
 
-void TaskHandlerListBoxModel::ItemComponent::refresh ()
+void TaskContextListBoxModel::ItemComponent::refresh (TaskContext& context)
 {
-	TaskHandler* task = getTask ();
-	if (task)
+	nameLabel.setText (context.getTask().getName(), dontSendNotification);
+
+	TaskContext::TaskState state = context.getState();
+
+	if (state == TaskContext::taskRunning)
 	{
-		nameLabel.setText (task->getTask().getName(), dontSendNotification);
-
-		TaskHandler::TaskState state = task->getState();
-
-		if (state == TaskHandler::taskRunning)
-		{
-			setProgressBarVisible(true);
-		}
-		else
-		{
-			setStateMessage(task->getStateDescription());
-		}
-
-		if (stateLabel != nullptr)
-		{
-			stateLabel->toFront (false);
-		}
-		resized ();
-		repaint ();
+		setProgressBarVisible(true);
 	}
+	else
+	{
+		setStateMessage (context.getStateDescription());
+	}
+
+	if (stateLabel != nullptr)
+	{
+		stateLabel->toFront (false);
+	}
+	resized ();
+	repaint ();
 }
 
-void TaskHandlerListBoxModel::ItemComponent::paint (juce::Graphics& g)
+void TaskContextListBoxModel::ItemComponent::paint (juce::Graphics& g)
 {
 	Colour colour (Colours::lightgrey);
 
-	if (getTask() != nullptr)
+	if (getTaskContext() != nullptr)
 	{
-		if (getTask()->getState() == TaskHandler::taskCompleted)
+		if (getTaskContext()->getState() == TaskContext::taskCompleted)
 		{
-			if (getTask()->getResult().wasOk())
+			if (getTaskContext()->getResult().wasOk())
 				colour = Colours::lightgreen;
 			else colour = Colours::red.brighter();
 		}
@@ -229,7 +181,7 @@ void TaskHandlerListBoxModel::ItemComponent::paint (juce::Graphics& g)
 	g.drawHorizontalLine(getHeight()-1,0.0f,(float)getWidth());
 }
 
-void TaskHandlerListBoxModel::ItemComponent::resized ()
+void TaskContextListBoxModel::ItemComponent::resized ()
 {
 	nameLabel.setBounds (getLocalBounds().withTrimmedBottom(2*getHeight()/3));
 
@@ -245,28 +197,33 @@ void TaskHandlerListBoxModel::ItemComponent::resized ()
 	}
 }
 
+void TaskContextListBoxModel::ItemComponent::taskProgressChanged (TaskContext& context)
+{
+	progress = context.getTask().getProgress();
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
-TaskHandlerListBoxModel::TaskHandlerListBoxModel ()
+TaskContextListBoxModel::TaskContextListBoxModel ()
 {
 
 }
 
-TaskHandlerListBoxModel::~TaskHandlerListBoxModel ()
+TaskContextListBoxModel::~TaskContextListBoxModel ()
 {
 
 }
 
-TaskHandlerViewComponent* TaskHandlerListBoxModel::createViewForTaskHandler (TaskHandler* handler)
+TaskContextViewComponent* TaskContextListBoxModel::createViewForTaskContext (TaskContext* handler)
 {
 	return new ItemComponent (handler);
 }
 
-void TaskHandlerListBoxModel::paintListBoxItem (int, juce::Graphics&, int, int, bool)
+void TaskContextListBoxModel::paintListBoxItem (int, juce::Graphics&, int, int, bool)
 {
 }
 
-Component* TaskHandlerListBoxModel::refreshComponentForRow (int rowNumber, bool , Component* existingComponentToUpdate)
+Component* TaskContextListBoxModel::refreshComponentForRow (int rowNumber, bool , Component* existingComponentToUpdate)
 {
 	ScopedPointer<Component> comp (existingComponentToUpdate);
 
@@ -274,19 +231,19 @@ Component* TaskHandlerListBoxModel::refreshComponentForRow (int rowNumber, bool 
 	{
 		if (comp != nullptr)
 		{
-			TaskHandlerViewComponent* viewComp = dynamic_cast< TaskHandlerViewComponent* >(existingComponentToUpdate);
+			TaskContextViewComponent* viewComp = dynamic_cast< TaskContextViewComponent* >(existingComponentToUpdate);
 			if (viewComp != nullptr)
 			{
 				comp.release ();
-				viewComp->setTask (getTaskForRow (rowNumber));
+				viewComp->setTaskContext (getTaskForRow (rowNumber));
 				return viewComp;
 			}
 		}
 
-		TaskHandlerViewComponent* viewComp = createViewForTaskHandler (getTaskForRow (rowNumber));
+		TaskContextViewComponent* viewComp = createViewForTaskContext (getTaskForRow (rowNumber));
 		if (viewComp != nullptr)
 		{
-			viewComp->refresh ();
+			viewComp->triggerRefresh ();
 			return viewComp;
 		}
 	}
@@ -324,7 +281,7 @@ void PooledTaskListView::refresh ()
 	repaint();
 }
 
-void PooledTaskListView::getAllTaskHandlers (TaskHandlerArray& tasks)
+void PooledTaskListView::getAllTaskHandlers (TaskContextArray& tasks)
 {
 	ScopedLock lock (taskRunner.getLock());
 
@@ -333,7 +290,7 @@ void PooledTaskListView::getAllTaskHandlers (TaskHandlerArray& tasks)
 	n = taskRunner.getNumTasks();
 	for (int i = 0; i < n; i++)
 	{
-		tasks.add (taskRunner.getTaskHandler(i));
+		tasks.add (taskRunner.getTaskContext(i));
 	}
 //	n = taskRunner.getNumUnfinishedTasks ();
 //	for (int i = 0; i < n; i++)
@@ -347,14 +304,14 @@ int PooledTaskListView::getNumRows ()
 	return tasks.size();
 }
 
-TaskHandler* PooledTaskListView::getTaskForRow (int rowNumber)
+TaskContext* PooledTaskListView::getTaskForRow (int rowNumber)
 {
 	return tasks[rowNumber];
 }
 
 void PooledTaskListView::listBoxItemDoubleClicked(int row, const MouseEvent&)
 {
-	TaskHandler* handler = getTaskForRow (row);
+	TaskContext* handler = getTaskForRow (row);
 	if (handler != nullptr)
 	{
 		handler->getTask().abort();

@@ -14,6 +14,7 @@
 
 #include "templates/AsyncCallback.h"
 #include "templates/Singleton.h"
+#include "templates/Factory.h"
 #include "templates/SubClassWeakReference.h"
 #include "templates/MessageThreadScopedPtr.h"
 #include "templates/OverridableSharedResourcePointer.h"

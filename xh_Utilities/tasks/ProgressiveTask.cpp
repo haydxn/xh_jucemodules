@@ -1,19 +1,215 @@
 ///////////////////////////////////////////////////////////////////////////////
 
-void ProgressiveTask::Context::addListener (Listener* listener)
+class TaskContext::ScopedRunTime
+{
+	JUCE_DECLARE_NON_COPYABLE (ScopedRunTime);
+public:
+	ScopedRunTime (TaskContext& context, TaskThreadBase& threadBase)
+		:	owner(context)
+	{
+		jassert (threadBase.isCurrentTaskThread());
+		ScopedLock lock (owner.runtimeLock);
+
+		owner.taskThread = &threadBase;
+		owner.setState (taskStarting);
+	}
+
+	~ScopedRunTime ()
+	{
+		ScopedLock lock (owner.runtimeLock);
+
+		owner.setState (taskCompleted);
+		owner.taskThread = nullptr;
+	}
+
+private:
+
+	TaskContext& owner;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
+TaskContext::TaskContext (ProgressiveTask* taskToRun)
+	:	activeTask (taskToRun),
+		taskThread (nullptr),
+		result (Result::ok()),
+		currentState (taskPending)
+{
+}
+
+TaskContext::~TaskContext ()
+{
+	// This should always be destroyed from the message thread...
+	jassert (MessageManager::getInstance()->isThisTheMessageThread());
+	// ... and it should not still be getting executed!
+	jassert (taskThread == nullptr);
+
+	flush ();
+}
+
+void TaskContext::addCallback (ProgressiveTask::Callback* callback)
+{
+	callbacks.add (callback);
+}
+
+ProgressiveTask& TaskContext::getTask ()
+{
+	return *activeTask;
+}
+
+juce::Result TaskContext::getResult () const
+{
+	return result;
+}
+
+bool TaskContext::wasAborted () const
+{
+	return getState() == taskAborted;
+}
+
+TaskContext::TaskState TaskContext::getState () const
+{
+	ScopedLock lock (runtimeLock);
+	return currentState;
+}
+
+bool TaskContext::hasFinished () const
+{
+	// Probably no real need to lock this...
+	return (currentState == taskCompleted) || (currentState == taskAborted);
+}
+
+String TaskContext::getStateDescription () const
+{
+	TaskState state = getState ();
+	switch (state)
+	{
+	case taskPending:	return "Waiting...";
+	case taskStarting:	return "Starting...";
+	case taskRunning:	return "Running...";
+	case taskStopping:	return "Stopping...";
+	case taskAborted:	return "Aborted.";
+
+	case taskCompleted:	
+
+		if (getResult().wasOk())
+		{
+			return "Completed successfully.";
+		}
+		else
+		{
+			return "Failed: " + getResult().getErrorMessage();
+		}
+
+	default:;
+	};
+	return String::empty;
+}
+
+bool TaskContext::currentTaskShouldExit ()
+{
+	if (taskThread != nullptr)
+	{
+		return taskThread->currentTaskShouldExit();
+	}
+	return true;
+}
+
+juce::Result TaskContext::runTask (TaskThreadBase& threadBase)
+{
+	ScopedRunTime runTime (*this, threadBase);
+
+	ProgressiveTask::ExecutionScope localRunTime (*this, *activeTask, nullptr);
+
+	setState (taskRunning);
+	result = activeTask->run ();
+	setState (taskStopping);
+
+	return result;
+}
+
+void TaskContext::handleAsyncUpdate ()
+{
+	bool aborted = wasAborted();
+
+	listeners.call (&TaskContext::Listener::aboutToDispatchTaskFinishedCallbacks, *this);
+
+	for (int i=0; i<callbacks.size(); i++)
+	{
+		ProgressiveTask::Callback* callback = callbacks.getUnchecked (i);
+		callback->taskFinishedCallback (result, aborted);
+	}
+	callbacks.clear ();
+
+	listeners.call (&TaskContext::Listener::taskFinishedCallbacksDispatched, *this);
+}
+
+void TaskContext::setState (TaskState state)
+{
+	ScopedLock lock (runtimeLock);
+
+	if (state != currentState)
+	{
+		currentState = state;
+
+		switch (currentState)
+		{
+		case taskStarting:
+
+			taskAboutToStart ();
+			break;
+
+		case taskCompleted:
+		case taskAborted:
+
+			if (currentTaskShouldExit() || activeTask->abortSignal)
+			{
+				currentState = taskAborted;
+			}
+
+			triggerAsyncUpdate ();
+
+			taskAboutToTerminate ();
+			break;
+
+		default:
+
+			break;
+		};
+
+		listeners.call (&TaskContext::Listener::taskStateChanged, *this);
+	}
+}
+
+
+void TaskContext::taskAboutToStart ()
+{
+
+}
+
+void TaskContext::taskAboutToTerminate ()
+{
+
+}
+
+void TaskContext::addListener (Listener* listener)
 {
 	listeners.add (listener);
 }
 
-void ProgressiveTask::Context::removeListener (Listener* listener)
+void TaskContext::removeListener (Listener* listener)
 {
 	listeners.remove (listener);
 }
 
+void TaskContext::flush ()
+{
+	handleUpdateNowIfNeeded ();
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
-ProgressiveTask::ExecutionScope::ExecutionScope (Context& executionContext, ProgressiveTask& task_, 
+ProgressiveTask::ExecutionScope::ExecutionScope (TaskContext& executionContext, ProgressiveTask& task_, 
 												 ExecutionScope* parentScope_,
 												double proportionOfProgress, 
 												int index_, int count_)
@@ -61,7 +257,7 @@ ProgressiveTask& ProgressiveTask::ExecutionScope::getTask ()
     return task;
 }
 
-ProgressiveTask::Context& ProgressiveTask::ExecutionScope::getContext ()
+TaskContext& ProgressiveTask::ExecutionScope::getContext ()
 {
     return context;
 }
@@ -76,9 +272,8 @@ void ProgressiveTask::ExecutionScope::setProgress (double newProgress)
     }
     else
     {
-        context.listeners.call (&ProgressiveTask::Context::Listener::taskProgressChanged, &task);
+        context.listeners.call (&TaskContext::Listener::taskProgressChanged, context);
     }
-    //task.notifyProgressChanged();
 }
 
 void ProgressiveTask::ExecutionScope::setStatusMessage (const String& message)
@@ -91,9 +286,8 @@ void ProgressiveTask::ExecutionScope::setStatusMessage (const String& message)
     }
     else
     {
-        context.listeners.call (&ProgressiveTask::Context::Listener::taskStatusMessageChanged, &task);
+        context.listeners.call (&TaskContext::Listener::taskStatusMessageChanged, context);
     }
-    //    task.notifyStatusChanged();
 }
 
 double ProgressiveTask::ExecutionScope::interpolateProgress (double amount) const
@@ -192,16 +386,6 @@ bool ProgressiveTask::shouldAbort () const
 	return abortSignal || threadShouldExit ();
 }
 
-Result ProgressiveTask::performTask (Context& context)
-{
-    if (scope == nullptr)
-    {
-        ExecutionScope localRunTime (context, *this, nullptr);
-        return run ();
-    }
-    return taskAlreadyRunning;
-}
-
 Result ProgressiveTask::performSubTask (ProgressiveTask& taskToPerform, double proportionOfProgress, int index, int count)
 {
     jassert (scope != nullptr);
@@ -291,3 +475,110 @@ const ProgressiveTask::ExecutionScope* ProgressiveTask::getScope () const
 
 ///////////////////////////////////////////////////////////////////////////////
 
+void TaskThreadBase::runTask (TaskContext::Ptr taskContext)
+{
+	jassert (isCurrentTaskThread());
+
+	if (taskContext != nullptr)
+	{
+		taskContext->runTask (*this);
+	}
+}
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+
+class TaskInterface::AsyncRefresh	:	public AsyncUpdater
+{
+public:
+
+	AsyncRefresh (TaskInterface& owner_)
+		:	owner (owner_)
+	{
+	}
+
+	virtual void handleAsyncUpdate () override
+	{
+		if (owner.task != nullptr)
+		{
+			ScopedLock lock (owner.task->getLock());
+			owner.refreshInternal ();
+		}
+	}
+
+private:
+
+	TaskInterface& owner;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
+TaskInterface::TaskInterface ()
+{
+	refreshCallback = new AsyncRefresh (*this);
+}
+
+TaskInterface::~TaskInterface ()
+{
+	setTaskContext (nullptr, false);
+}
+
+void TaskInterface::setTaskContext (TaskContext* taskToView, bool alsoTriggerRefresh)
+{
+	if (taskToView != task)
+	{
+		if (task != nullptr)
+		{
+			task->removeListener (this);
+		}
+
+		task = taskToView;
+
+		if (taskToView != nullptr)
+		{
+			taskToView->addListener (this);
+		}
+
+		if (alsoTriggerRefresh)
+		{
+			taskContextChanged ();
+			triggerRefresh ();
+		}
+	}
+}
+
+TaskContext* TaskInterface::getTaskContext ()
+{
+	return task;
+}
+
+void TaskInterface::refreshInternal ()
+{
+	if (task != nullptr)
+	{
+		refresh (*task);
+	}
+}
+
+void TaskInterface::refresh (TaskContext&)
+{
+
+}
+
+void TaskInterface::triggerRefresh ()
+{
+	refreshCallback->triggerAsyncUpdate ();
+}
+
+void TaskInterface::taskContextChanged ()
+{
+}
+
+void TaskInterface::taskStateChanged (TaskContext&)
+{
+	triggerRefresh ();
+}
+
+
+///////////////////////////////////////////////////////////////////////////////

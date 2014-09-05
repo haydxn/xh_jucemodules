@@ -2,15 +2,54 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 ModalTaskPopup::ModalTaskPopup (ProgressiveTask* task)
-	:	TaskHandler (task),
-		progress (0.0)
+	:	progress (0.0)
 {
+	setTaskContext (new TaskContext (task));
+}
 
+ModalTaskPopup::ModalTaskPopup (TaskContext* task)
+	:	progress (0.0)
+{
+	setTaskContext (task);
 }
 
 ModalTaskPopup::~ModalTaskPopup ()
 {
-	flushState();
+}
+
+void ModalTaskPopup::refresh (TaskContext& context)
+{
+	if (alertWindow == nullptr && context.getState() != TaskContext::taskPending)
+	{
+		taskStart ();
+	}
+}
+
+void ModalTaskPopup::aboutToDispatchTaskFinishedCallbacks (TaskContext& context)
+{
+	if (alertWindow)
+	{
+		alertWindow->exitModalState (context.wasAborted() ? 1 : 0);
+		alertWindow->setVisible (false);
+		alertWindow = nullptr;
+	}
+
+	stopTimer();
+}
+
+void ModalTaskPopup::taskFinishedCallbacksDispatched (TaskContext&)
+{
+	delete this;
+}
+
+void ModalTaskPopup::taskStatusMessageChanged (TaskContext& )
+{
+
+}
+
+void ModalTaskPopup::taskProgressChanged (TaskContext& context)
+{
+	progress = context.getTask().getProgress();
 }
 
 void ModalTaskPopup::taskStart ()
@@ -23,61 +62,66 @@ void ModalTaskPopup::taskStart ()
 	progress = 0.0;
 
 	alertWindow = LookAndFeel::getDefaultLookAndFeel()
-			.createAlertWindow (getTask().getName(), String(),
-			cancelButtonText.isEmpty() ? TRANS("Cancel") : cancelButtonText,
-			String(), String(),
-			AlertWindow::NoIcon, hasCancelButton ? 1 : 0,
-			componentToCentreAround);
+		.createAlertWindow (getTaskContext()->getTask().getName(), String(),
+		cancelButtonText.isEmpty() ? TRANS("Cancel") : cancelButtonText,
+		String(), String(),
+		AlertWindow::NoIcon, hasCancelButton ? 1 : 0,
+		componentToCentreAround);
 
 	alertWindow->setEscapeKeyCancels (false);
 
 	if (hasProgressBar)
-		alertWindow->addProgressBarComponent (getOverallProgressVariable());
+		alertWindow->addProgressBarComponent (progress);
+
+	monitor (true);
 
 	alertWindow->enterModalState();
 
 	startTimer (10);
 }
 
-bool ModalTaskPopup::taskMonitor (bool stillRunning)
+bool ModalTaskPopup::monitor (bool stillRunning)
 {
 	if (stillRunning && alertWindow->isCurrentlyModal())
 	{
-		alertWindow->setMessage (getStatusMessage());
+		alertWindow->setMessage (getTaskContext()->getTask().getStatusMessage());
 		return true;
 	}
 	return false;
 }
 
-void ModalTaskPopup::taskFinish (bool aborted)
+void ModalTaskPopup::launch (ProgressiveTask* task, const String& title, int priority, 
+							 ProgressiveTask::Callback* callback)
 {
-	alertWindow->exitModalState (aborted ? 1 : 0);
-	alertWindow->setVisible (false);
-	alertWindow = nullptr;
-
-	stopTimer();
+	launch (new TaskContext(task), title, priority, callback);
 }
 
-void ModalTaskPopup::launch (ProgressiveTask* task, const String& title, int priority, Callback* callback)
+void ModalTaskPopup::launch (TaskContext* context, const String& title, int priority, 
+							 ProgressiveTask::Callback* callback)
 {
-	ModalTaskPopup* handler = new ModalTaskPopup (task);
-
-	if (callback != nullptr)
+	if (context)
 	{
-		handler->addCallback (callback);
-	}
+		if (callback != nullptr)
+		{
+			context->addCallback (callback);
+		}
 
-	TaskThread::launch (handler, title, priority);
+		new ModalTaskPopup (context);
+		TaskThread::launch (context, title, priority);
+	}
 }
 
 void ModalTaskPopup::timerCallback ()
 {
-	if (!taskMonitor (getState() == TaskHandler::taskRunning))
+	TaskContext* context = getTaskContext();
+	if (context != nullptr)
 	{
-		getTask().abort();
+		if (!monitor (context->getState() == TaskContext::taskRunning))
+		{
+			context->getTask().abort();
+		}
 	}
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////
 

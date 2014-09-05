@@ -71,7 +71,6 @@ public:
 		else
 		{
 			deleteAsynchronously (object);
-
 		}
 	}
 
@@ -94,6 +93,27 @@ private:
 	juce::OwnedArray< ObjectType, juce::CriticalSection > objectsToDelete;
 
 };
+
+///////////////////////////////////////////////////////////////////////////////
+
+template <class ObjectType>
+void deleteOnMessageThread (ObjectType* object)
+{
+	AsyncDestroyer< ObjectType >::deleteOnMessageThread (object);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+#define DECLARE_MESSAGETHREAD_DELETE_POLICY(ClassName) \
+template <> \
+struct juce::ContainerDeletePolicy< ClassName > \
+{ \
+	static void destroy (ClassName* object) \
+	{ \
+		deleteOnMessageThread (object); \
+	} \
+}; \
+
 
 ///////////////////////////////////////////////////////////////////////////////
 

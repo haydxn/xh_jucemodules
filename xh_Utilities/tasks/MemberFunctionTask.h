@@ -29,7 +29,7 @@
     typedef FunctionTask::With1Param< File > FileTask;
     FileTask someFileTask ("Operate upon a file", this, &CurrentLocalTask::doWithFile, file);
  
-    Result doWithFile (ProgressiveTask& task, File file)
+    Result doWithFile (Task& task, File file)
     {
         return Result::ok();
     }
@@ -44,7 +44,7 @@ public:
 
     /** This is the prototype for a member function capable of being wrapped
         in a MemberFunctionTask. It needs to return a Result, and it must take
-        a single ProgressiveTask& parameter. 
+        a single Task& parameter. 
      */
 	typedef juce::Result (TargetClass::*TaskFunction) (ProgressiveTask& functionTask);
 
@@ -70,7 +70,7 @@ public:
 	///////////////////////////////////////////////////////////////////////////
 
     /** Variant of the MemberFunctionTask for calling a member function which 
-        takes a single extra parameter (on top of the ProgressiveTask parameter)
+        takes a single extra parameter (on top of the Task parameter)
         as specified by the template arguments.
      */
 	template <typename ParamType1>
@@ -104,7 +104,7 @@ public:
 	///////////////////////////////////////////////////////////////////////////
 
     /** Variant of the MemberFunctionTask which takes two extra parameters (on
-        top of the ProgressiveTask parameter) as specified by the template 
+        top of the Task parameter) as specified by the template 
         arguments.
      */
 	template <typename ParamType1, typename ParamType2>
